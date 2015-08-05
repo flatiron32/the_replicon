@@ -202,7 +202,7 @@ end
 
 userId = creds['username']
 password = creds['password']
-clientName = "OWW"
+clientName = creds['client']
 replicon = Replicon.new(clientName, userId, password)
 project_id = replicon.project("101544")
 cd_project_id = replicon.project("204601")
