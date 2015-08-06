@@ -6,10 +6,15 @@ creds = YAML::load_file(File.join(ENV['HOME'], '.repliconrc'))
 
 class Timesheet
 
+  def self.from_file(filename, client_id)
+    timehash = YAML::load_file(filename).to_hash
+    Timesheet.new(clinet_id: client_id, timehash: timehash)
+  end
 
-  def initialize(timesheet_id, client_id)
-    @client_id = client_id
-    @timehash =  { 
+
+  def initialize(args)
+    @client_id = args[:client_id]
+    @timehash =  args[:timehash] || { 
       "Action" => "Edit", 
       "Type" => "Replicon.TimeSheet.Domain.Timesheet", 
       "Operations" => [ 
@@ -18,7 +23,8 @@ class Timesheet
         }
       ]
     }
-    @timehash["Identity"] = timesheet_id
+
+    @timehash["Identity"] = args[:timesheet_id] unless args[:timehash]
   end
 
   def enter_time(task_id, date, duration)
@@ -76,6 +82,8 @@ class Replicon
     "Content-Type" => "application/json"
   }
 
+  attr_reader :current_timesheet
+
   def initialize(clientName, userId, password, verbose = false)
     @verbose = verbose
     @clientName = clientName
@@ -83,7 +91,7 @@ class Replicon
     @password = password
     @client = client(@clientName)
     @user = user(@userId)
-    @currentTimesheet = timesheet(Date.today)
+    @current_timesheet = timesheet(Date.today)
   end
   
   def beginSession
@@ -98,7 +106,7 @@ class Replicon
     }
   end
   
-  def submitTimesheet(timesheet = @currentTimesheet)
+  def submitTimesheet(timesheet = @current_timesheet)
     {
       "Action" => "Edit",
       "Type" => "Replicon.TimeSheet.Domain.Timesheet",
@@ -144,7 +152,7 @@ class Replicon
       ]
     }
 
-    Timesheet.new(queryForIdentity(timesheetByUserDate), @client)
+    Timesheet.new(client_id: @client, timesheet_id: queryForIdentity(timesheetByUserDate))
   end
 
   def project(projectCode)
@@ -209,7 +217,7 @@ cd_project_id = replicon.project("204601")
 task_id = replicon.tasks("Initiate/Expense", project_id)
 cd_task_id = replicon.tasks("Develop", cd_project_id)
 dates = (Date.new(2015,8,3)..Date.new(2015,8,7)).first 5
-timesheet = replicon.timesheet(dates[0])
+timesheet = replicon.current_timesheet
 dates.each do |date| 
   timesheet.enter_time(task_id, date, 4) 
   timesheet.enter_time(cd_task_id, date, 4) 
