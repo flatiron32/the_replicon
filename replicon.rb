@@ -2,7 +2,8 @@ require 'date'
 require 'net/http'
 require 'json'
 require 'yaml'
-creds = YAML::load_file(File.join(ENV['HOME'], '.repliconrc'))
+require 'optparse'
+require 'optparse/date'
 
 class Timesheet
 
@@ -82,14 +83,15 @@ class Replicon
     "Content-Type" => "application/json"
   }
 
-  attr_reader :current_timesheet
+  attr_reader :current_timesheet, :client
 
   def initialize(clientName, userId, password, verbose = false)
+    raise "Client name must be supplied" unless clientName
     @verbose = verbose
     @clientName = clientName
     @userId = userId
     @password = password
-    @client = client(@clientName)
+    @client = lookup_client(@clientName)
     @user = user(@userId)
     @current_timesheet = timesheet(Date.today)
   end
@@ -115,7 +117,7 @@ class Replicon
       }
   end
   
-  def client(name)
+  def lookup_client(name)
     queryForIdentity({ "Action" => "Query", 
       "QueryType" => "ClientByName", 
       "DomainType" => "Replicon.Domain.Client", 
@@ -200,26 +202,120 @@ class Replicon
 
     raise "#{response['Message']}:
               Request: #{JSON.pretty_generate(JSON.parse(req.body))}
-              Response: #{JSON.pretty_generate(response)}" if response["Status"] == "Exception"
+              Response (#{res.code}): #{JSON.pretty_generate(response)}" if response["Status"] == "Exception" || res.code != "200"
 
     response
   end
 end
 
-# TODO Scriptify
+def self.parse(args)
+  creds = YAML::load_file(File.join(ENV['HOME'], '.repliconrc'))
 
-userId = creds['username']
-password = creds['password']
-clientName = creds['client']
-replicon = Replicon.new(clientName, userId, password)
-project_id = replicon.project("101544")
-cd_project_id = replicon.project("204601")
-task_id = replicon.tasks("Initiate/Expense", project_id)
-cd_task_id = replicon.tasks("Develop", cd_project_id)
-dates = (Date.new(2015,8,3)..Date.new(2015,8,7)).first 5
-timesheet = replicon.current_timesheet
-dates.each do |date| 
-  timesheet.enter_time(task_id, date, 4) 
-  timesheet.enter_time(cd_task_id, date, 4) 
+  options = OpenStruct.new
+  options.verbose = false
+  options.submit = false
+  options.username = creds['username']
+  options.password = creds['password']
+  options.client_name = creds['client']
+  options.project_number = creds['default_project']
+  options.task_name = creds['default_task']
+  options.dates = []
+  options.hours = 8
+  options.save = false
+
+  opt_parser = OptionParser.new do |opts|
+    opts.banner = "Usage: replicon.rb [options]"
+
+    opts.on("--username USERNAME", String, "Replicon username, default is defined in ~/.repliconrc") do |username|
+      options.username = username
+    end
+
+    opts.on("--password PASSWORD", "Replicon password, default is defined in ~/.repliconrc") do |password|
+      options.password = password
+    end
+
+    opts.on("--client CLIENT", "Replicon client name, default is defined in ~/.repliconrc") do |client|
+      options.client = client
+    end
+
+    opts.on("-p", "--project PROJECT", "Replicon project number, default is defined in ~/.repliconrc") do |project_number|
+      options.project_number = project_number
+    end
+
+    opts.on("-t", "--task TASK", "Replicon task name, default is defined in ~/.repliconrc") do |task_name|
+      options.task_name = task_name
+    end
+
+    opts.on("-d", "--date DATE", Date, "The dates to apply the hours to. Multiple allowed") do |date|
+      options.dates << date
+    end
+
+    opts.on("-h", "--hours HOURS", Integer, "The number of hours to be entered on the date for the project task.") do |hours|
+      options.hours << hours
+    end
+
+    opts.on("--save [FILE]", "Save the timesheet to a file. File name can be provided.") do |file|
+      options.save = true
+      options.save_file = file || nil
+    end
+
+    opts.on("--load [FILE]", "Load the timesheet from a file. File name can be provided.") do |file|
+      options.load = true
+      options.load_file = file || nil
+    end
+
+    opts.on("--file FILE", "File name to be used for loading and saving.") do |file|
+      options.file = file
+    end
+
+    opts.on("-s", "--submit", "Submit the timesheet.") do |submit|
+      options.submit = submit
+    end
+
+    opts.on("-v", "--[no-]verbose", "Run verbosely") do |v|
+      options.verbose = v
+    end
+
+    opts.on_tail("-h", "--help", "Show this message") do
+      puts opts
+      exit
+    end
+  end
+
+  opt_parser.parse!(args)
+  options.dates << Date.today if options.dates.empty?
+  options.file ||= "WK#{options.dates[0].strftime("%U")}_timesheet.yml"
+  options.save_file ||= options.file 
+  options.load_file ||= options.file
+
+  options
+
 end
-replicon.execute(timesheet.to_hash)
+
+options = parse(ARGV)
+puts options if options.verbose
+
+replicon = Replicon.new(options.client_name, options.username, options.password, options.verbose)
+project_id = replicon.project(options.project_number)
+task_id = replicon.tasks(options.task_name, project_id)
+
+begin
+  timesheet = Timesheet.from_file(options.load_file, replicon.client) 
+rescue Exception => e
+  puts "Unable to load from #{options.load_file}"
+end if options.load
+timesheet ||= replicon.timesheet options.dates[0]
+
+options.dates.each do |date| 
+  timesheet.enter_time(task_id, date, options.hours) 
+end
+
+File.open(options.save_file, 'w') { |fo| fo.puts timesheet.to_yaml } if options.save
+
+timehash = timesheet.to_hash
+
+if options.submit
+  replicon.execute(timehash, replicon.submitTimesheet(timehash["Identity"]))
+else
+  replicon.execute(timehash)
+end
