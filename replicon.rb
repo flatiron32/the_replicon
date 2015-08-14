@@ -222,6 +222,7 @@ def self.parse(args)
   options.dates = []
   options.hours = 8
   options.save = false
+  options.no_dates = false
 
   opt_parser = OptionParser.new do |opts|
     opts.banner = "Usage: replicon.rb [options]"
@@ -248,6 +249,11 @@ def self.parse(args)
 
     opts.on("-d", "--date DATE", Date, "The dates to apply the hours to. Multiple allowed") do |date|
       options.dates << date
+    end
+
+    opts.on("--[no-]dates", Date, "Do not add any dates to the timesheet.") do |nd|
+      options.no_dates = !nd
+      options.week_number = Date.today.strftime("%U")
     end
 
     opts.on("-h", "--hours HOURS", Integer, "The number of hours to be entered on the date for the project task.") do |hours|
@@ -283,8 +289,9 @@ def self.parse(args)
   end
 
   opt_parser.parse!(args)
-  options.dates << Date.today if options.dates.empty?
-  options.file ||= "WK#{options.dates[0].strftime("%U")}_timesheet.yml"
+  options.dates << Date.today if options.dates.empty? unless options.no_dates
+  options.week_number = options.dates[0].strftime("%U") unless options.no_dates
+  options.file ||= "WK#{options.week_number}_timesheet.yml"
   options.save_file ||= options.file 
   options.load_file ||= options.file
 
