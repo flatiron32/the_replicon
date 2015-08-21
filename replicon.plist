@@ -10,10 +10,7 @@
   <string>/Users/jtomaw/Development/the-replicon</string>
   <key>ProgramArguments</key>
   <array>
-    <string>ruby</string>
-    <string>replicon.rb</string>
-    <string>--load</string>
-    <string>--save</string>
+    <string>./enterTodaysTime.sh</string>
   </array>
   <key>StartCalendarInterval</key>
   <array>
