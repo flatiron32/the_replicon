@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 require 'date'
 require 'net/http'
 require 'json'
@@ -21,6 +23,9 @@ class Timesheet
       "Operations" => [ 
         {
           "__operation" => "CollectionClear", "Collection" => "TimeRows" 
+        },
+        {
+          "__operation" => "CollectionClear", "Collection" => "TimeOffRows" 
         }
       ]
     }
@@ -31,7 +36,7 @@ class Timesheet
   def enter_time(task_id, date, duration)
     rows = @timehash["Operations"]
     row = rows[1..-1].find do |row|
-      row["Operations"][0]["Task"]["Identity"] == task_id
+      row["Operations"] && row["Operations"][0]["Task"] && row["Operations"][0]["Task"]["Identity"] == task_id
     end
 
     if !row
@@ -60,6 +65,41 @@ class Timesheet
             "__type" => "Replicon.TimeSheet.Domain.CalculationModeObject", "Identity" => "CalculateInOutTime" 
           }
         },
+        {
+          "__operation" => "SetProperties", 
+          "EntryDate" => { "__type" => "Date", "Year" => date.year, "Month" => date.month, "Day" => date.day }, 
+          "Duration" => { "__type" => "Timespan", "Hours" => duration }, 
+        },
+      ] 
+    }
+  end
+
+  def enter_sick_time(date, duration)
+    rows = @timehash["Operations"]
+    row = rows[1..-1].find do |row|
+      row["Operations"] && 
+        row["Operations"][0]["TimeOffCode"] && 
+        row["Operations"][0]["TimeOffCode"]["Identity"] == task_id
+    end
+    if !row
+      row =       {
+        "__operation" => "CollectionAdd", 
+        "Collection" => "TimeOffRows", 
+        "Operations" =>  [ 
+          {
+            "__operation" => "SetProperties", 
+            "Task" => { "__type" => "Replicon.TimeOff.Domain.TimeOffCode", "Identity" => 8 },
+          }
+        ]
+      }
+
+      rows << row
+    end
+
+    row["Operations"] <<  {
+      "__operation" => "CollectionAdd", 
+      "Collection" => "Cells", 
+      "Operations" => [
         {
           "__operation" => "SetProperties", 
           "EntryDate" => { "__type" => "Date", "Year" => date.year, "Month" => date.month, "Day" => date.day }, 
